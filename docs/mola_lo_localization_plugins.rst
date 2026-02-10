@@ -119,6 +119,16 @@ Testing strategy
 3. **Noisy map/data test:** verify plugin rejects bad matches rather than destabilizing output.
 4. **Long-run test:** verify no frame drift/mismatch and no source flapping in bridge output.
 
+
+SC-QN plugin example
+--------------------
+
+A ready-to-adapt launch example is provided in
+``mola-cli-launchs/lidar_odometry_with_scqn.yaml``.
+
+If your SC-QN module is in an external shared library, remember to pass it
+at startup with ``--load-plugins``.
+
 Troubleshooting
 ---------------
 

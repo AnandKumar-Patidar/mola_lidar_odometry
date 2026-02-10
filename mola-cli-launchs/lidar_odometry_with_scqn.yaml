@@ -1,0 +1,41 @@
+# Example MOLA launcher configuration showing how to combine
+# LiDAR odometry with an external SC-QN relocalization plugin.
+#
+# Run with:
+#   mola-cli -c lidar_odometry_with_scqn.yaml
+
+modules:
+  - name: ros2_bridge
+    type: mola::BridgeROS2
+    params:
+      base_link_frame_id: "base_link"
+      odom_frame_id: "odom"
+      map_frame_id: "map"
+      relocalize_from_topic: "/initialpose"
+
+      publish_tf_from_slam_source: state_estimator
+      publish_odometry_msgs_from_slam_source: state_estimator
+
+  - name: lidar_odometry
+    type: mola::LidarOdometry
+    raw_data_source: "ros2_bridge"
+    params:
+      # Reuse any of the standard LO pipelines here:
+      pipeline_file: "${MOLA_ODOMETRY_PIPELINE_FILE|./pipelines/lidar3d-gicp.yaml}"
+
+  - name: scqn_relocalizer
+    type: mola::SCQNRelocalizer
+    raw_data_source: "ros2_bridge"
+    params:
+      scan_topic_sensor_label: "lidar"
+      relocalization_min_score: 0.22
+      # The command must produce a text file: x y z yaw pitch roll score
+      scqn_command_template: "${MOLA_SCQN_COMMAND|./run_scqn_backend --scan {SCAN_FILE} --prior {PRIOR_FILE} --out {RESULT_FILE}}"
+      command_working_directory: "${MOLA_SCQN_WORKDIR|}"
+
+  - name: state_estimator
+    type: mola::NavStateFilterSimple
+    params:
+      input_sources:
+        - "lidar_odometry"
+        - "scqn_relocalizer"
