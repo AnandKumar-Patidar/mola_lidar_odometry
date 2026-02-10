@@ -132,5 +132,6 @@ Additional technical guides
 
 * :ref:`mola_lo_architecture`: module-level architecture and data-flow reference.
 * :ref:`mola_lo_localization_plugins`: guide to create localization/relocalization plugins.
+* :ref:`mola_lo_scqn_plugin`: how to wire an SC-QN relocalization plugin into MOLA-LO.
 * :ref:`mola_lo_state_estimators`: how to use and author state estimator modules.
 * :ref:`mola_lo_fastlio_molareloc`: recipe for FAST-LIO odometry + MOLA relocalization + estimator fusion.

@@ -25,6 +25,7 @@
  */
 
 #include <mola_lidar_odometry/LidarOdometry.h>
+#include <mola_lidar_odometry/SCQNRelocalizer.h>
 #include <mrpt/core/initializer.h>
 #include <mrpt/rtti/CObject.h>
 
@@ -34,4 +35,5 @@ MRPT_INITIALIZER(do_register_mola_lidar_odometry)  // NOLINT
 
   // Register modules:
   MOLA_REGISTER_MODULE(mola::LidarOdometry);
+  MOLA_REGISTER_MODULE(mola::SCQNRelocalizer);
 }
