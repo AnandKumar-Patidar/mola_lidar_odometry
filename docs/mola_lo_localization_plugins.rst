@@ -4,66 +4,77 @@
 Creating localization/relocalization plugins for MOLA-LO
 =======================================================
 
-This guide explains how to add a new plugin module that provides
-localization/relocalization capabilities in a MOLA-LO deployment.
+This guide explains how to add a custom localization module that can be loaded
+into the same MOLA system as LiDAR odometry and ROS 2 bridge modules.
 
 .. contents::
    :depth: 2
    :local:
    :backlinks: none
 
-When you need a plugin
+When to build a plugin
 ----------------------
 
-Create a plugin when you want to:
+Build a plugin when one or more of these are true:
 
-* Inject a custom global localization source (e.g., map matching,
-  visual relocalization, GNSS-map alignment).
-* React to runtime re-initialization requests coming from ROS 2
-  (``/initialpose`` by default).
-* Provide alternative localization hypotheses to be fused with the
-  state estimator.
+* You need a **global localization source** beyond LO's built-in initialization
+  (e.g., map matching from another modality, place recognition, GNSS-map alignment).
+* You need **runtime relocalization** behavior that differs from built-in LO policies.
+* You need to provide **alternative hypotheses** and let a downstream estimator decide.
 
-How relocalization requests enter the system
+Where plugin modules fit in the architecture
 --------------------------------------------
 
-In the default ROS 2 integration, ``BridgeROS2`` maps
-``geometry_msgs/PoseWithCovarianceStamped`` messages from
-``relocalize_from_topic`` to relocalization calls for all modules
-implementing ``mola::Relocalization``.
+Plugins run as peer modules under ``modules:`` in launch YAML, typically with:
 
-This means your plugin must implement MOLA relocalization interfaces and run
-inside the same MOLA module container as ``BridgeROS2``.
+* ``raw_data_source: "ros2_bridge"`` if they consume bridge-fed observations.
+* Optional direct map file loading in their own parameter block.
+* Localization outputs published back to MOLA bus for bridge/estimators.
 
-Default topic and behavior are in:
-``mola-cli-launchs/lidar_odometry_ros2.yaml``.
+Relocalization request path
+---------------------------
 
-Recommended plugin module contract
-----------------------------------
+Default ROS 2 integration maps ``relocalize_from_topic`` (``/initialpose`` by default)
+from ``geometry_msgs/PoseWithCovarianceStamped`` into relocalization requests
+for every module implementing ``mola::Relocalization``.
 
-At minimum, implement these capabilities in your new module:
+Practical implication: if your plugin implements relocalization and is loaded in
+the system, it will be triggered together with other relocalizable modules.
 
-1. **Executable module lifecycle**
-   (initialize, periodic work, and observation callbacks).
-2. **Relocalization interface support** so bridge-triggered requests can call
-   into your module.
-3. **Localization output publication** using MOLA localization observations so
-   downstream consumers (bridge, state estimator) can use your results.
+Minimum module contract
+-----------------------
 
-The exact C++ interfaces live in MOLA core packages. In this repository you can
-see how modules are configured and selected by class type string
-(e.g., ``mola::LidarOdometry`` or ``mola::state_estimation_simple::StateEstimationSimple``).
+For production use, implement at least:
 
-Integration steps
------------------
+1. **Lifecycle + execution loop**
 
-1. Implement the new module in your package and ensure its shared library is in
-   the runtime library path.
-2. Add it to the MOLA launch YAML under ``modules:`` with a unique ``name``.
-3. Set module ``type`` to your fully qualified class name.
-4. Set ``raw_data_source`` if your plugin consumes bridge observations.
-5. Configure bridge publication filters so ROS 2 publishes either your plugin,
-   LO, or state estimator output as needed.
+   * initialization from YAML,
+   * observation handling,
+   * periodic work (if applicable).
+
+2. **Relocalization API**
+
+   * process incoming pose priors (mean + covariance),
+   * support rejection/failure handling when priors are inconsistent.
+
+3. **Localization output publication**
+
+   * publish estimates in a form consumable by bridge/state estimator,
+   * provide covariance and source metadata when possible.
+
+4. **Frame consistency policy**
+
+   * define expected input/output frames,
+   * explicitly document map/odom/base_link assumptions.
+
+Integration workflow
+--------------------
+
+#. Implement and export your module class in your package shared library.
+#. Ensure runtime loader can find the library (environment/package install paths).
+#. Add the module stanza under ``modules:``.
+#. Configure bridge publication source filters to expose your module if desired.
+#. Validate relocalization with ``/initialpose`` and runtime logs.
 
 Example module stanza
 ---------------------
@@ -75,29 +86,46 @@ Example module stanza
      verbosity_level: "INFO"
      raw_data_source: "ros2_bridge"
      params:
-       # plugin-specific settings here
        map_file: "/path/to/map.mm"
+       score_threshold: 0.75
+       max_hypotheses: 3
 
-How to wire outputs to ROS 2
-----------------------------
+ROS publication wiring
+----------------------
 
-Use these bridge parameters:
+In ``BridgeROS2.params`` set one or both:
 
-* ``publish_tf_from_slam_source``
-* ``publish_odometry_msgs_from_slam_source``
+* ``publish_tf_from_slam_source: my_relocalizer``
+* ``publish_odometry_msgs_from_slam_source: my_relocalizer``
 
-Set them to the module name you want to expose (for example,
-``my_relocalizer`` or ``state_estimation``).
+If you prefer estimator-mediated output, keep bridge source set to estimator,
+while estimator fuses your plugin's localization observations.
 
-Validation checklist
---------------------
+Recommended failure-handling policies
+-------------------------------------
 
-* Your module appears in MOLA startup logs.
-* Sending a pose on ``/initialpose`` triggers your module callback.
-* A localization output from your module is visible in bridge-published
-  ``/tf`` or odometry (when selected).
-* If used with LO, ensure consistent frame IDs (``map``, ``odom``,
-  ``base_link``) with REP-105 mode expectations.
+To avoid instability in real robots:
+
+* Gate updates by confidence score / innovation checks.
+* Avoid abrupt jumps unless explicitly in relocalization mode.
+* Publish covariance inflation during uncertain phases.
+* Debounce repeated ``/initialpose`` requests.
+
+Testing strategy
+----------------
+
+1. **Static test:** known initial pose and known map; verify convergence.
+2. **Perturbed prior test:** random offsets in ``/initialpose``; verify recovery region.
+3. **Noisy map/data test:** verify plugin rejects bad matches rather than destabilizing output.
+4. **Long-run test:** verify no frame drift/mismatch and no source flapping in bridge output.
+
+Troubleshooting
+---------------
+
+* **Plugin loads but no effect:** verify module name/type and that outputs are published.
+* **No relocalization callback:** verify ``relocalize_from_topic`` and message type.
+* **Output not visible in ROS 2:** verify bridge source filters point to your module.
+* **Frame jumps:** verify frame convention and REP-105 mode consistency.
 
 See also
 --------

@@ -4,44 +4,69 @@
 State estimators in MOLA-LO: usage and authoring
 ============================================
 
-This guide documents:
-
-* How to use the built-in state estimators with MOLA-LO.
-* How to select estimator outputs for ROS 2 publication.
-* What to implement when creating a new estimator module.
+This guide covers how to use built-in estimators with MOLA-LO, how output
+selection works in ROS 2, and what to implement for a custom estimator.
 
 .. contents::
    :depth: 2
    :local:
    :backlinks: none
 
+Role of state estimation in MOLA-LO
+-----------------------------------
+
+LiDAR odometry provides geometry-driven pose updates. A state estimator sits
+alongside LO to:
+
+* smooth and regularize short-term LO noise,
+* integrate additional cues (IMU, odom, GNSS, plugin outputs),
+* provide predictable covariance and publication timing.
+
 Built-in estimator options
 --------------------------
 
-The default launch files select one of two estimator classes:
+The launch file selects one of:
 
 * ``mola::state_estimation_simple::StateEstimationSimple``
 * ``mola::state_estimation_smoother::StateEstimationSmoother``
 
-Selection is controlled by launch argument ``use_state_estimator`` in
-``ros2-launchs/ros2-lidar-odometry.launch.py``, which sets the
-``MOLA_STATE_ESTIMATOR`` environment variable.
+Selection path:
 
-Parameter files
----------------
+* launch argument ``use_state_estimator``
+* sets env ``MOLA_STATE_ESTIMATOR``
+* consumed in ``mola-cli-launchs/lidar_odometry_ros2.yaml`` under module ``type``.
 
-By default, estimator settings are loaded from:
+Parameter files and key knobs
+-----------------------------
+
+Default config files:
 
 * ``state-estimator-params/state-estimation-simple.yaml``
 * ``state-estimator-params/state-estimation-smoother.yaml``
 
-Common tunable parameters include process-noise values, planar-motion
-constraints, and initial twist estimates.
+Frequently tuned parameters:
 
-How to run with smoother estimator
-----------------------------------
+* process noise:
+  ``sigma_random_walk_acceleration_linear``,
+  ``sigma_random_walk_acceleration_angular``
+* motion assumptions:
+  ``enforce_planar_motion``
+* prior velocity:
+  ``initial_twist`` and (smoother) prior sigmas
+* smoother-specific temporal behavior:
+  ``sliding_window_length``
 
-Example:
+Practical selection guidance
+----------------------------
+
+* Use **simple estimator** when you need low complexity and direct online filtering.
+* Use **smoother** when delayed but more stable estimates are acceptable and
+  your motion profile benefits from short-window optimization.
+
+Run examples
+------------
+
+Use smoother estimator:
 
 .. code-block:: bash
 
@@ -49,63 +74,88 @@ Example:
       use_state_estimator:=true \
       state_estimator_config_yaml:=../state-estimator-params/state-estimation-smoother.yaml
 
-How estimator outputs are exposed to ROS 2
-------------------------------------------
+Use simple estimator explicitly:
 
-The launch file sets:
+.. code-block:: bash
+
+   ros2 launch mola_lidar_odometry ros2-lidar-odometry.launch.py \
+      use_state_estimator:=false \
+      state_estimator_config_yaml:=../state-estimator-params/state-estimation-simple.yaml
+
+How ROS 2 publication source is chosen
+--------------------------------------
+
+Bridge output source can be filtered independently for TF and odometry messages:
 
 * ``MOLA_LOCALIZATION_PUBLISH_TF_SOURCE``
 * ``MOLA_LOCALIZATION_PUBLISH_ODOM_MSGS_SOURCE``
 
-When ``use_state_estimator=true``, both default to ``state_estimator``;
-otherwise they default to ``lidar_odometry``.
+These are set in the launch file depending on estimator usage. If your
+configuration uses custom module names, ensure these values match the actual
+module name used in launch YAML.
 
-This means you can switch between raw LO output and fused estimator output
-without changing code.
+Internal cooperation with LO
+----------------------------
 
-How estimators cooperate with LO internally
--------------------------------------------
+LO and estimator are instantiated in the same module container so LO can
+interoperate with estimator logic. This pattern is explicit in repository tests.
 
-In tests and real deployments, LO and estimator modules are instantiated in the
-same module container so LO can find/use the estimator.
+Authoring a new estimator module
+--------------------------------
 
-Reference implementation pattern appears in:
-``test/test_lidar_odometry_rosbag2.cpp`` and
-``test/test_lidar_odometry_rawlog.cpp``.
+Implementation checklist:
 
-Writing a new state estimator module
-------------------------------------
+1. Implement MOLA executable module lifecycle:
 
-Recommended design checklist:
+   * initialize from YAML,
+   * process incoming observations,
+   * periodic output publication if needed.
 
-1. Implement a MOLA executable module class (initialize + update loop).
-2. Subscribe to motion/sensor observations you plan to fuse (IMU, odometry,
-   LO poses, GNSS, etc.).
-3. Publish localization estimates as MOLA localization observations.
-4. Provide a YAML-driven parameter block (noise, priors, constraints,
-   publication rate).
-5. Register and export the module so it can be instantiated by type string in
-   launch YAML.
+2. Implement fusion core:
 
-Integration into ``lidar_odometry_ros2.yaml``:
+   * state definition (pose, twist, optional biases),
+   * propagation model,
+   * update models for each observation type.
+
+3. Publish localization outputs with covariance and source metadata.
+
+4. Expose runtime parameters via YAML:
+
+   * process/update noise,
+   * gating thresholds,
+   * frame names,
+   * publication rate.
+
+5. Export/register class so launch YAML can instantiate by ``type`` string.
+
+Minimal integration snippet
+---------------------------
 
 .. code-block:: yaml
 
    - name: state_estimation
      type: my_namespace::MyStateEstimator
+     verbosity_level: "INFO"
      raw_data_source: "ros2_bridge"
      execution_rate: 20
      params: "../state-estimator-params/my-state-estimator.yaml"
 
-Practical migration strategy
-----------------------------
+Migration strategy for safe rollout
+-----------------------------------
 
-When bringing a new estimator online:
+1. Start with LO as ROS output source; run estimator in shadow mode.
+2. Compare estimator vs LO trajectories and latency.
+3. Tune noises/gating with representative datasets.
+4. Switch bridge source to estimator once stable.
+5. Keep LO source as quick rollback option.
 
-* First run with LO publishing to ROS 2 and estimator running in parallel.
-* Compare trajectories and delays.
-* Switch bridge publication source to your estimator once stable.
-* Keep LO output available as fallback source during validation.
+Validation checklist
+--------------------
+
+* Estimator receives expected observation streams.
+* Covariance is finite and scaled realistically.
+* No unstable oscillations under aggressive maneuvers.
+* TF and odometry outputs remain frame-consistent over long runs.
 
 See also
 --------
