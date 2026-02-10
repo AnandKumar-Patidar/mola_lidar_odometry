@@ -126,3 +126,11 @@ Refer to the MOLA LO paper for further details.
   You cannot debug what you cannot see. A powerful GUI named :ref:`icp-log-viewer <app_icp-log-viewer>`
   is provided to carefully inspect the internals of ICP optimization iterations.
 
+
+Additional technical guides
+---------------------------
+
+* :ref:`mola_lo_architecture`: module-level architecture and data-flow reference.
+* :ref:`mola_lo_localization_plugins`: guide to create localization/relocalization plugins.
+* :ref:`mola_lo_state_estimators`: how to use and author state estimator modules.
+* :ref:`mola_lo_fastlio_molareloc`: recipe for FAST-LIO odometry + MOLA relocalization + estimator fusion.
